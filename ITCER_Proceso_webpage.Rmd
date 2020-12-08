@@ -1,0 +1,904 @@
+---
+title: "Nota Metodológica: Componentes del Indice del Tipo de Cambio Efectivo Real (ITCER)"
+author: "Elvis Casco"
+header-includes:
+  \renewcommand{\contentsname}{Contenido}
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: yes
+    code_folding: hide
+  pdf_document:
+    toc: yes
+    #includes:
+    #      in_header: header.tex
+  word_document:
+    toc: yes
+    number_sections: yes
+always_allow_html: yes
+---
+
+\pagebreak
+
+```{r, comment="", warning=F, message=F, echo=F}
+# options(encoding = "CP1252")
+```
+
+# 1. Resumen Ejecutivo
+
+Este documento desarrolla el proceso para calcular el Índice del Tipo de Cambio Efectivo Real (ITCER), a partir de datos de tipos de cambio e &#237;ndices de precios.
+
+Se utiliza el Programa R Studio para efectuar los c&#225;lculos del ITCER,  determinado &#233;ste por nivel global y por grupos de socios comerciales, agrupaciones que presenta el Banco Central de Honduras (BCH) en su informe mensual; en adici&#243;n, se desarrolla una forma de determinar si la ganancia (o desmejora) en la competitividad se obtuvo debido a mejora (o desmejora) comparativa en precios o tipos de cambio, as&#237; como el seguimiento de estos componentes por socio comercial.
+
+```{r, comment="", warning=F, message=F, echo=F}
+knitr::opts_chunk$set(fig.width=10, fig.height=3.5)
+rm(list=ls())
+```
+
+# 2. F&#243;rmulas B&#225;sicas
+
+## 2.1. ITCER
+
+\begin{equation}
+\label{eqn:1}
+\tag{1}
+itcer_t = \frac{\prod\limits_{x=1}^{n}\frac{itcx_t^{w_x}}{ipx_t^{w_x}}}{\frac{itchn_t}{iphn_t}} *100
+= \frac{ \frac{ \prod\limits_{x=1}^{n} itcx_t^{w_x} }{\prod\limits_{x=1}^{n} ipx_t^{w_x}}}{\frac{itchn_t}{iphn_t}} * 100
+=\frac{\frac{iphn_t}{\prod\limits_{x=1}^{n} ipx_t^{w_x}}}{\frac{itchn_t}{\prod\limits_{x=1}^{n} itcx_t^{w_x}}}* 100 
+\end{equation}
+
+- $t$: mes a calcular;
+
+- $n$: n&#250;mero de socios comerciales considerados;
+
+- $itcx$: &#237;ndice de tipo de cambio nominal del socio comercial $x$;
+
+- $w_x$: ponderaci&#243;n del socio comercial dentro del ITCER;
+
+- $ipx$: &#237;ndice de precios al consumidor del socio comercial $x$;
+
+- $itchn$: &#237;ndice de tipo de cambio nominal del pa&#237;s de referencia (Honduras);
+
+- $iphn$: &#237;ndice de precios al consumidor del pa&#237;s de referencia (Honduras).
+
+## 2.2. Variaci&#243;n Mensual del ITCER, aproximaci&#243;n logar&#237;tmica
+
+\begin{equation}
+\label{eqn:2}
+\tag{2}
+\text{dln}\_itcer_t =\bigg(
+\sum\limits_{x=1}^{n}\bigg\{
+w_x*
+\bigg[
+\underbrace{
+\text{dln}\_iphn_t-
+\text{dln}\_ipx_t
+}
+_{\text{Diferencial de Precios}}
+\bigg]\bigg\}
+- 
+\sum\limits_{x=1}^{n} \bigg\{
+w_x*
+\bigg[
+\underbrace{
+\text{dln}\_itchn_t-
+\text{dln}\_itcx_t
+}
+_{\text{Diferencial de Tipos de Cambio}}
+\bigg]\bigg\}\bigg)
+*100
+\end{equation}
+
+$\text{ln}\_\text{variable}_t$: logaritmo natural de la variable en el mes $t$;
+
+$\text{dln}\_\text{variable}_t$: $\text{ln}\_\text{variable}_t-\text{ln}\_\text{variable}_{t-1}$
+
+Las variables son: $itcer$, $iphn$, $ipx$, $itchn$ e $itcx$.
+
+## 2.3. Variaci&#243;n Interanual del ITCER, aproximaci&#243;n logar&#237;tmica
+
+\begin{equation}
+\label{eqn:3}
+\tag{3}
+\text{d12ln}\_itcer_t =\bigg(
+\sum\limits_{x=1}^{n}\bigg\{
+w_x*
+\bigg[
+\text{d12ln}\_iphn_t-
+\text{d12ln}\_ipx_t
+\bigg]\bigg\} - 
+\sum\limits_{x=1}^{n} \bigg\{
+w_x*
+\bigg[
+\text{d12ln}\_itchn_t-
+\text{d12ln}\_itcx_t
+\bigg]\bigg\}\bigg)
+*100
+\end{equation}
+
+$\text{d12ln}\_\text{variable}_t$: $\text{ln}\_\text{variable}_t-\text{ln}\_\text{variable}_{t-12}$
+
+```{r, comment="", warning=F, message=F, echo=F}
+base <- "2017-12-01"
+```
+
+\pagebreak
+
+```{r, comment="", warning=F, message=F, echo=F}
+# options(encoding = "CP1252")
+# install.packages(c("janitor","knitr","lubridate","pander","plotly",
+#                    "readxl","tidyverse","xtable"))
+library(gridExtra)
+library(janitor)
+# library(kableExtra)
+library(knitr)
+library(lubridate)
+library(pander)
+library(plotly)
+library(readxl)
+library(tidyverse)
+library(xtable)
+## Función para detectar si se imprime gráfico dinámico, en caso de ser formato HTML
+getOutputFormat <- function() {
+  output <- rmarkdown:::parse_yaml_front_matter(
+    readLines(knitr::current_input())
+    )$output
+  if (is.list(output)){
+    return(names(output)[1])
+    } else {
+      return(output[1])
+    }
+  } 
+```
+
+# 3. Nomenclaturas y Ponderaciones
+
+Las ponderaciones actuales se basan en la cobertura comercial de Honduras, 2017. En este documento se utiliza la siguiente nomenclatura:
+
+```{r, comment="", warning=F, message=F, echo=F, results='asis'}
+## Nomenclaturas
+df <- data.frame(Paises = c("Honduras","Costa Rica","El Salvador",
+                          "Guatemala","Nicaragua","Panama",
+                          "Estados Unidos de America","Mexico",
+                          "Zona Euro","China"),
+                 Abreviado = c("hn","cr","sv",
+                         "gt","ni","pa",
+                         "eua","mx",
+                         "eur","chi"),
+                 IPC_Base = c("Diciembre, 1999","Junio, 2015",
+                          "Diciembre, 2009","Diciembre, 2010",
+                          "Promedio, 2006","Diciembre, 2002",
+                          "Promedio, 1982-1984","Diciembre, 2010",
+                          "Promedio, 2005","Diciembre, 1999"),
+                 BaseIPC = c("1299","0615","1209",
+                             "1210","06","1202",
+                             "8284","1210","05","1299"))
+#kable(df)#,split.table = 60)
+pander(df,
+       head("Nomenclaturas"), split.table = Inf)
+```
+
+La columna "BaseIPC" es el dato de fecha base, por ejemplo, 1299 es diciembre 1999, 06 es 2006 y 8284 es el promedio de 1982-1984. Los encabezados de las tablas siguientes corresponden a las abreviaturas de la Tabla 1.
+
+Tomando en cuenta las agrupaciones por socio comercial, las ponderaciones utilizadas son:
+
+```{r, comment="", warning=F, message=F, echo=F, results='asis'}
+## Ponderaciones
+pond <- read_excel("base/ponderaciones.xlsx", 
+                          sheet = "W0",
+                          range = "B33:L36") %>%
+  rename_all(~ c("Indicador","cr","sv",
+                 "gt","ni","pa","eua",
+                 "mx","eur","chi","Total"))
+tpond <- data.frame(t(pond)[-1,])
+names(tpond) <- c("Global", "Centroamerica", "Resto del Mundo")
+#kable(tpond)
+pander(tpond,
+       head("Ponderaciones"), split.table = Inf)
+```
+
+\pagebreak
+
+# 4. &#205;ndices de Precios
+
+## 4.1. Bases originales
+
+```{r, comment="", warning=F, message=F, echo=F, fig.height=3, fig.width=10} 
+## Indices de Precios, Bases Originales
+# p <- read_excel("datos/itcer.xlsx",
+#                       sheet = "Datos",
+#                       range = paste0("M4:AQ",fin))
+# p <- p[-c(1:2),c(1,seq(2,31,3))] %>%
+#   as_tibble() %>%
+#   rename_all(~ c("Meses","hn1299","cr0615",
+#               "sv1209","gt1210","ni06",
+#               "pa1202","eua8284","mx1210",
+#               "eur05","chi1299")) %>%
+#   mutate(Meses = as.Date(Meses))
+p <- read_csv("base/ip_bases.csv")[,-c(1,13)]
+kable(tail(p,45))
+```
+
+\pagebreak
+
+## 4.2. Base del ITCER (2017)
+
+En vista que cada pa&#237;s tiene una base diferente, para pasar a base diciembre 2017 se aplica:
+
+\begin{equation}
+\label{eqn:4}
+\tag{4}
+ipx_t = \frac{ipx\_bases_t}{ipx_{dic2017}}*100
+\end{equation}
+
+- $ipx\_bases$: IPC (con base diferente para cada caso) del pa&#237;s x; y
+
+- $ipx_{dic{2017}}$ es el IPC del pa&#237;s x en diciembre de 2017.
+
+El IPC de los pa&#237;ses socios se deriva de la ecuaci&#243;n $\eqref{eqn:1}$, siendo una media geom&#233;trica:
+
+\begin{equation}
+\label{eqn:5}
+\tag{5}
+\text{ipsocios}_t=\prod_{x=1}^{n} ipx_t^{w_x}
+\end{equation}
+
+```{r, comment="", warning=F, message=F, echo=F, fig.height=3, fig.width=10} 
+## Indices a base elegida
+ip_base <- p %>% filter(Meses == as.Date(base))
+n <- ncol(p)
+ip <- p %>%
+  as_tibble() %>%
+  rename_all(~ c("Meses","hn","cr",
+                 "sv","gt","ni",
+                 "pa","eua","mx",
+                 "eur","chi"))
+ip[,2:11] <- t(apply(as.matrix(p[,2:11]), 1,
+                     function(x) x/
+                       as.matrix(ip_base[,2:11])*100))
+
+## Indice de precios Externos, ponderado
+ip_global <- ip %>%
+  # select(-hn) %>%
+  mutate(ipsocios = 
+           cr^pond$cr[1] * 
+           sv^pond$sv[1] *
+           gt^pond$gt[1] *
+           ni^pond$ni[1] *
+           pa^pond$pa[1] *
+           eua^pond$eua[1] *
+           mx^pond$mx[1] *
+           eur^pond$eur[1] *
+           chi^pond$chi[1]
+           )
+ip_global %>%
+  tail(.,35) %>% 
+  mutate_if(is.numeric, round, 3) %>%
+  kable(.)
+```
+
+\pagebreak
+
+# 5. &#205;ndices de Tipos de Cambio Nominal
+
+## 5.1. Tipos de Cambio Nominal
+
+Corresponden al dato de tipo de cambio promedio de compra (moneda de cada pa&#237;s por un dólar de los Estados Unidos de Am&#233;rica(EUA)); por ende, los valores de las columnas de Panam&#225; y EUA son iguales a 1. El dato de El Salvador es el que se estableci&#243; para la moneda de dicho pa&#237;s antes de su dolarizaci&#243;n; igualmente, como dicho valor es constante, al calcular su &#237;ndice en la siguiente tabla, el mismo es igual a 100 en todas las fechas.
+
+```{r, comment="", warning=F, message=F, echo=F, fig.height=3, fig.width=10} 
+# tc <- read_excel("datos/itcer.xlsx",
+#                       sheet = "Datos",
+#                       range = paste0("A3:K",fin))
+# tc <- tc[-c(1:3),] %>%
+#   mutate(Meses = excel_numeric_to_date(as.numeric(as.character(Meses)), 
+#                                        date_system = "modern")) %>%
+#   as_tibble() %>%
+#   rename_all(~ c("Meses","hn","cr","sv",
+#                  "gt","ni","pa","eua",
+#                  "mx","eur","chi"))
+tc <- read_csv("base/tc.csv")[,-c(1,13)]
+kable(tail(tc,40))
+```
+
+\pagebreak
+
+## 5.2. &#205;ndices, Base del ITCER (2017)
+
+De forma similar al IPC, para pasar a base diciembre 2017 se aplica:
+
+\begin{equation}
+\label{eqn:6}
+\tag{6}
+itcx_t = \frac{tcx_t}{tcx_{dic2017}}*100
+\end{equation}
+
+- $tcx_{t}$: tipo de cambio nominal del pa&#237;s x en el mes $t$.
+
+- $tcx_{dic{2017}}$: tipo de cambio nominal del pa&#237;s x en diciembre de 2017.
+
+El &#237;ndice de tipo de cambio nominal de los pa&#237;ses socios se deriva de la ecuaci&#243;n $\eqref{eqn:1}$, siendo una media geom&#233;trica:
+
+\begin{equation}
+\label{eqn:7}
+\tag{7}
+\text{itcsocios}_t=\prod_{x=1}^{n} itcx_t^{w_x}
+\end{equation}
+
+```{r, comment="", warning=F, message=F, echo=F, fig.height=3, fig.width=10} 
+## Indices a base elegida
+tc_base <- tc %>% filter(Meses == as.Date(base))
+n <- ncol(tc)
+itc <- tc %>%
+  as_tibble() %>%
+  rename_all(~ c("Meses","hn","cr",
+                 "sv","gt","ni",
+                 "pa","eua","mx",
+                 "eur","chi"))
+itc[,2:11] <- t(apply(as.matrix(tc[,2:11]), 1,
+                     function(x) x/
+                       as.matrix(tc_base[,2:11])*100))
+
+itc_global <- itc %>%
+  mutate(itcsocios = 
+           cr^pond$cr[1] * 
+           sv^pond$sv[1] *
+           gt^pond$gt[1] *
+           ni^pond$ni[1] *
+           pa^pond$pa[1] *
+           eua^pond$eua[1] *
+           mx^pond$mx[1] *
+           eur^pond$eur[1] *
+           chi^pond$chi[1]
+           )
+itc_global %>%
+  tail(.,35) %>% 
+  mutate_if(is.numeric, round, 3) %>%
+  kable(.)
+```
+
+\pagebreak
+
+# 6. ITCER, por Grupos^[Se obtiene aplicando la ecuaci&#243;n $\eqref{eqn:1}$.]
+
+```{r, comment="", warning=F, message=F, echo=F, fig.height=3, fig.width=10} 
+## ITCER por Paises
+itcer <- itc_global[,-2]
+for (i in 3:12){
+  itcer[,i-1] = (ip_global[,2]/ip_global[,i])/
+    (itc_global[,2]/itc_global[,i])*100
+}
+names(itcer) <- c(names(itcer)[1:10],"itcer_g")
+
+## Por Regiones
+source('R/weighted.geomean.R')
+itcer_pond <- data.frame(
+  Meses = itc[,1],
+  Global = apply(itcer[,2:10],1,
+        function(x) 
+          weighted.geomean(x,pond[1,2:10])),
+  Centroam = apply(itcer[,2:6],1,
+        function(x) 
+          weighted.geomean(x,pond[2,2:6])),
+  Resto_Mundo = apply(itcer[,8:10],1,
+        function(x) 
+          weighted.geomean(x,pond[3,8:10])),
+  EUA = itcer$eua
+  )
+itcer_pond %>%
+  tail(.,48) %>% 
+  mutate_if(is.numeric, round, 3) %>%
+  kable(.)
+
+## Datos en formato tidy
+tidy_ip <- ip %>%
+  mutate(variable = "ip") %>%
+  gather("paisx","indices", 3:n)
+tidy_itc <- itc %>%
+  mutate(variable = "itc") %>%
+  gather("paisx","indices", 3:n)
+tidy_itcer <- itcer %>%
+  mutate(variable = "itcer",
+         hn = 100) %>%
+  gather("paisx","indices", 2:n)
+tidy_data <- rbind(tidy_ip,tidy_itc) %>%
+  as_tibble()
+```
+
+\pagebreak
+
+# 7. ITCER, Contribuciones^[Este apartado corresponde a una derivaci&#243;n detallada de la ecuaci&#243;n $\eqref{eqn:2}$; de igual manera pueden derivarse los resultados de la ecuaci&#243;n $\eqref{eqn:3}$.]
+
+## 7.1. Contribuci&#243;n de Precios y Tipos de Cambio a Variaci&#243;n Mensual del ITCER
+
+Para determinar contribuci&#243;n de los componentes del ITCER, se aplican las propiedades de los logaritmos naturales (ln) a la ecuaci&#243;n $\eqref{eqn:1}$, obteniendo:
+
+$$\text{ln}(itcer_t)  = \text{ln}(100) + \text{ln}(itcx_t) - \text{ln}(ipx_t) - \text{ln}(itc_t) + \text{ln}(ip_t)$$
+
+pudiendo reagrupar de  esta forma:
+
+$$\text{ln}(itcer_t)  = ln(100) + \big[\text{ln}(ip_t) -\text{ln}(ipx_t)\big] - \big[\text{ln}(itc_t) - \text{ln}(itcx_t)\big]$$
+
+Al aplicar diferencial logar&#237;tmico^[$\text{dln}(x_t)=lx_t-lx_{t-1}$] a la expresi&#243;n planteada anteriormente, se obtiene:
+
+$$\text{dln}(itcer_t)  = \big[\text{dln}(ip_t) - \text{dln}(ipx_t)\big] - \big[\text{dln}(itc_t) - \text{dln}(itcx_t)\big]$$
+
+Un aumento (disminuci&#243;n) en la variaci&#243;n del ITCER ^[$\text{dln}(itcer_t)>0$] se asocia a una desmejora (ganancia) de competitividad de nuestras exportaciones.
+
+Se pierde (gana) competitividad cuando:
+
+- La variaci&#243;n en los precios en Honduras ($\text{dln}(ip_t)$) es **mayor** a la variaci&#243;n en los precios de nuestros socios comerciales ($\text{dln}(ipx_t)$); y/o
+
+- La variaci&#243;n en el precio de la moneda (tipo de cambio nominal) en Honduras ($\text{dln}(itc_t)$) es **menor** a la variaci&#243;n en el tipo de cambio nominal de nuestros socios comerciales ($\text{dln}(itcx_t)$).
+
+## 7.2. Contribuciones por pa&#237;ses a Variacion Mensual del ITCER
+
+El ITCER ponderado es una pitatoria ($\prod$) que toma en cuenta el itcer bilateral y el peso de cada socio:
+
+$$itcer\_pond=\prod_{x=1}^{n} itcerx_t^{w_x}$$
+
+Considerando las propiedades de los logaritmos, para calcular las contribuciones por socio comercial, debe obtenerse primero la contribucion de cada pa&#237;s al logaritmo del ITCER ponderado por $w_x$, por tanto^[$\prod_{i=1}^{n} x_i^{w_i}=x_1^{w_1}*x_2^{w_2}*\dots*x_n^{w_n}$; luego, $\text{ln}\bigg(\prod_{i=1}^{n} x_i^{w_i}\bigg)=\text{ln}\bigg(x_1^{w_1}*x_2^{w_2}*\dots*x_n^{w_n}\bigg)=w_1*\text{ln}(x_1)+w_2*\text{ln}(x_2)+\dots+w_n*\text{ln}(x_n)=\sum_{i=1}^n w_i*\text{ln}(x_i)$]:
+
+$$\text{ln}(itcer\_pond) = \sum_{x=1}^{n} w_x * \text{ln}(itcerx_t)$$
+
+Una vez obtenido este dato, la contribuci&#243;n de cada pa&#237;s a la variaci&#243;n mensual del ITCER (obtenida por aproximaci&#243;n logar&#237;tmica) estar&#237;a dada por
+
+$$\text{dln}(itcer\_pond) = \sum_{x=1}^{n} w_x*\big[\text{ln}(itcerx_t) - \text{ln}(itcerx_{t-1})\big]$$
+
+## 7.3. Contribuci&#243;n de Precios y Tipos de Cambio por pa&#237;s a Variacion Mensual del ITCER
+
+Debido a que el ITCER es un &#237;ndice ponderado, para descomponer la contribuci&#243;n al &#237;ndice por pa&#237;s en precios y tipos de cambio, debe considerarse las siguientes operaciones^[tanto $ip_t$ como $itc_t$ pueden incluirse dentro del par&#233;ntesis de la pitatoria considerando que $\prod\limits_{x=1}^{n} {y^{w_x}}=y$ si $\prod\limits_{x=1}^{n} {w_x} = 1$]:
+
+$$itcer_t=\frac{\frac{itcx_t}{ipx_t}}{\frac{itc_t}{ip_t}}*100$$
+
+$$itcer_t =\frac{
+\frac{\prod\limits_{x=1}^{n} itcx_t^{w_x}}
+{\prod\limits_{x=1}^{n} ipx_t^{w_x}}}
+{\frac{itc_t}{ip_t}}*100 =
+\frac{\left(\prod\limits_{x=1}^{n} itcx_t^{w_x}\right)*ip_t}
+{\left(\prod\limits_{x=1}^{n} ipx_t^{w_x}\right)*itc_t}*100=
+\frac{\frac{ip_t}{\left(\prod\limits_{x=1}^{n} ipx_t^{w_x}\right)}}
+{\frac{itc_t}{\left(\prod\limits_{x=1}^{n} itcx_t^{w_x}\right)}}*100 =
+\frac{\prod\limits_{x=1}^{n} \left(\frac{ip_t}{ipx_t}\right)^{w_x}}
+{\prod\limits_{x=1}^{n} \left(\frac{itc_t}{itcx_t}\right)^{w_x}}*100
+$$
+
+Aplicando logaritmos a ambos lados de la identidad:
+
+$$\text{ln}(itcer_t)=\text{ln}(100)+
+\text{ln} \left(\prod\limits_{x=1}^{n} \left(\frac{ip_t}{ipx_t}\right)^{w_x} \right)-
+\text{ln} \left(\prod\limits_{x=1}^{n} \left(\frac{itc_t}{itcx_t}\right)^{w_x} \right)$$
+
+o de manera menos compacta:
+
+$$\text{ln}(itcer_t) =\text{ln}(100)+  \sum\limits_{x=1}^{n} \bigg[w_x*\big(\text{ln}(ip_t)-\text{ln}(ipx_t)\big) \bigg] - 
+\sum\limits_{x=1}^{n} \bigg[w_x*\big(\text{ln}(itc_t)-\text{ln}(itcx_t)\big) \bigg]$$
+
+Una aproximaci&#243;n a la variaci&#243;n mensual, utilizando el diferencial de la expresi&#243;n anterior, estaria dada por:
+
+$$\text{dln}(itcer_t)=
+\left(\text{dln} \prod\limits_{x=1}^{n} \left(\frac{ip_t}{ipx_t}\right)^{w_x}-
+\text{dln} \prod\limits_{x=1}^{n} \left(\frac{itc_t}{itcx_t}\right)^{w_x} \right)*100$$
+
+y de forma m&#225;s espec&#237;fica, $\text{dln}(itcer_t)$ es igual a:
+
+$$\bigg(\sum\limits_{x=1}^{n} \bigg\{w_x\cdot\bigg[\big(\text{ln}(ip_t)-\text{ln}(ipx_t)\big)-\big(\text{ln}(ip_{t-1})-\text{ln}(ipx_{t-1})\big)\bigg]\bigg\}  - 
+\sum\limits_{x=1}^{n} \bigg\{w_x\cdot\bigg[\big(\text{ln}(itc_t)-\text{ln}(itcx_t)\big)-\big(\text{ln}(itc_{t-1})-\text{ln}(itcx_{t-1})\big)\bigg]\bigg\}\bigg)\cdot100$$
+
+reordenando, $\text{dln}(itcer_t)$ es igual a:
+
+$$\bigg(\sum\limits_{x=1}^{n} \bigg\{w_x\cdot\bigg[\big(\text{ln}(ip_t)-\text{ln}(ip_{t-1})\big)-\big(\text{ln}(ipx_t)-\text{ln}(ipx_{t-1})\big)\bigg]\bigg\}  - 
+\sum\limits_{x=1}^{n} \bigg\{w_x\cdot\bigg[\big(\text{ln}(itc_t)-\text{ln}(itc_{t-1})\big)-\big(\text{ln}(itcx_t)-\text{ln}(itcx_{t-1})\big)\bigg]\bigg\}\bigg)\cdot100$$
+
+De esta forma, se puede saber la contribuci&#243;n por pa&#237;s de los componentes de precios y tipo de cambio.
+
+\pagebreak
+
+# 8. Logaritmos y Diferenciales Logar&#237;tmicos^[En la tabla se presentan los componentes y resultados de las ecuaciones $\eqref{eqn:2}$ y $\eqref{eqn:3}$.]
+
+```{r, comment="", warning=F, message=F, echo=F, fig.height=3, fig.width=10} 
+## Calcular logs y dlogs
+tidy_data <- tidy_data %>%
+  group_by(variable,paisx) %>%
+  mutate(
+    ## Para cada pais
+    ln_x = log(indices),
+    dln_x = (ln_x - lag(ln_x,1))*100,
+    d12ln_x = (ln_x - lag(ln_x,12))*100,
+    ## Para Honduras
+    ln_hn = log(hn),
+    dln_hn = (ln_hn - lag(ln_hn,1))*100,
+    d12ln_hn = (ln_hn - lag(ln_hn,12))*100
+    ) %>%
+  as_tibble()
+
+## Incluir Ponderaciones
+tidy_pond <- pond %>%
+  filter(Indicador == "Global") %>%
+  select(-Indicador,-Total) %>%
+  t(.) %>%
+  as.data.frame() %>%
+  rownames_to_column("paisx") %>%
+  as_tibble() %>%
+  rename_all(~ c("paisx","pond"))
+
+tidy_data <- inner_join(tidy_data, tidy_pond, by = "paisx") %>%
+  select(Meses,hn,variable,paisx,pond,
+         ln_hn,ln_x,
+         dln_hn,dln_x,
+         d12ln_hn,d12ln_x) %>%
+  mutate(dln_itcer = pond*(dln_hn - dln_x),
+         dln_itcer = case_when(variable == "ip" ~ dln_itcer,
+                               variable == "itc" ~ dln_itcer*(-1)),
+         d12ln_itcer = pond*(d12ln_hn - d12ln_x),
+         d12ln_itcer = case_when(variable == "ip" ~ d12ln_itcer,
+                               variable == "itc" ~ d12ln_itcer*(-1)))
+write.csv(tidy_data, "resultados/tidy_data.csv")
+```
+
+## 8.1 Tabla de Datos, &#218;ltimo Mes Disponible
+
+```{r, comment="", warning=F, message=F, echo=F}
+fecha_fin <- tidy_data[nrow(tidy_data),"Meses"]
+tidy_data %>%
+  filter(Meses == fecha_fin) %>%
+  select(-hn) %>%
+  select(1:8,11) %>%
+  kable(.)#, split.table = 'inf')
+
+tidy_data %>%
+  filter(Meses == fecha_fin) %>%
+  select(-hn) %>%
+  select(c(1,2:4,9:10,12)) %>%
+  kable(.)#, split.table = 'inf')
+```
+
+# 9. Variaciones Mensuales 
+
+## 9.1. Gr&#225;fico por Componentes, Enero 2010 - &#218;ltimo Mes Disponible
+
+```{r, comment="", warning=F, message=F, echo=F} 
+## Calcular dl_itcer
+dln_itcer <- tidy_data %>%
+  select(Meses,variable,paisx,dln_hn,dln_x,dln_itcer) %>%
+  group_by(Meses,variable,paisx) %>%
+  summarise(dln_itcer = sum(dln_itcer)) %>%
+  mutate(componente = paste0(variable,"_",paisx)) %>%
+  select(Meses,paisx,variable,componente,dln_itcer) %>%
+  as_tibble()
+
+## dlog_itcer por precios y tipos de cambio
+dln_itcer_componente <- dln_itcer %>%
+  select(-componente) %>%
+  spread(variable, dln_itcer) %>%
+  group_by(Meses) %>%
+  summarise(dln_itcer_precios = sum(ip),
+            dln_itcer_tipo_cambio = sum(itc)) %>%
+  gather("Componente", "Variacion", -Meses) %>%
+  as_tibble() 
+
+## Graficar
+dln_itcer_componente_plot <- dln_itcer %>%
+  filter(Meses >= "2010-01-01") %>%
+  group_by(Meses) %>%
+  summarize(dln_itcer = sum(dln_itcer)) %>%
+  mutate(dln_itcer = dln_itcer)
+
+p0 <- dln_itcer_componente %>%
+  filter(Meses >= "2010-01-01") %>%
+ggplot(aes(x = Meses, y = Variacion,
+               fill = Componente)) +
+  geom_bar(stat="identity") +
+theme_minimal() +
+ggtitle("Variaci\u00F3n Mensual del ITCER, por Componentes (DLn)") +
+geom_line(data = dln_itcer_componente_plot,
+          aes(x = Meses, y = dln_itcer),
+          colour="brown",
+          size=0.8,
+          inherit.aes=F) +
+theme(axis.title.x=element_blank(),
+      axis.title.y=element_blank())
+
+if(getOutputFormat() != 'html_document') {
+  p0
+} else {
+  ggplotly(p0)
+}
+```
+
+## 9.2. Tabla por Componentes, &#218;ltimos Meses Disponibles
+
+```{r, comment="", warning=F, message=F, echo=F} 
+dln_itcer_componente %>%
+  spread(Componente,Variacion) %>%
+  filter(Meses >= "2010-01-01") %>%
+ rename(Precios = dln_itcer_precios,
+         Tipo_Cambio = dln_itcer_tipo_cambio) %>%
+  bind_cols(dln_itcer_componente_plot[,2]) %>%
+  tail(.,25) %>%
+  kable()
+```
+
+\pagebreak
+
+## 9.3. Gr&#225;fico por Pa&#237;ses, Enero 2010 - &#218;ltimo Mes Disponible
+
+```{r, comment="", warning=F, message=F, echo=F} 
+## dlog_itcer por pais
+dln_itcer_pais <- dln_itcer %>%
+  group_by(Meses,paisx) %>%
+  summarise(Variacion = sum(dln_itcer)*100) %>%
+  as_tibble() 
+dln_itcer_pais_plot <- dln_itcer_pais %>%
+  filter(Meses >= "2010-01-01") %>%
+  group_by(Meses) %>%
+  summarize(dln_itcer = sum(Variacion))
+# Graficar
+p0 <- dln_itcer_pais %>%
+  filter(Meses >= "2010-01-01") %>%
+  ggplot(aes(x = Meses, y = Variacion,
+                 fill = paisx)) +
+  geom_bar(stat="identity") +
+  theme_minimal() +
+  ggtitle("Variaci\u00F3n Mensual del ITCER, por Pa\u00EDses (DLn)") +
+  geom_line(data = dln_itcer_pais_plot,
+            aes(x = Meses, y = dln_itcer),
+            colour="brown",
+            size=0.8,
+            inherit.aes=F) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank())
+
+if(getOutputFormat() != 'html_document') {
+  p0
+} else {
+  ggplotly(p0)
+}
+```
+
+## 9.4. Gr&#225;fico por Pa&#237;ses, &#218;ltimos 6 Meses Disponibles
+
+```{r, comment="", warning=F, message=F, echo=F} 
+## Por paises y fechas
+source('R/itcer_pais.R')
+fechas <- unique(dln_itcer$Meses)
+n <- length(fechas)
+fechas_graficar <- unique(dln_itcer$Meses)[(n-5):n]
+graficar <- map(fechas_graficar,
+    itcer_pais)
+names(graficar) <- fechas[(n-5):n]
+library(gridExtra)
+grid.arrange(graficar[[1]],graficar[[2]],graficar[[3]],
+             nrow=1)
+grid.arrange(graficar[[4]],graficar[[5]],graficar[[6]],
+             nrow=1)
+```
+
+\pagebreak
+
+## 9.5. Tabla por Pa&#237;ses, &#218;ltimo Mes Disponible
+
+```{r, comment="", warning=F, message=F, echo=F}
+dln_itcer %>%
+  filter(Meses == fecha_fin) %>%
+  group_by(Meses,paisx) %>%
+  summarise(dln_itcer = sum(dln_itcer)) %>%
+  kable()
+```
+
+## 9.6. Gr&#225;fico por Pa&#237;ses y Componentes, &#218;ltimos 6 Meses Disponibles
+
+```{r, comment="", warning=F, message=F, echo=F}
+source('R/itcer_componente.R')
+fechas <- unique(dln_itcer$Meses)
+n <- length(fechas)
+fechas_graficar <- unique(dln_itcer$Meses)[(n-5):n]
+graficar <- map(fechas_graficar,
+    itcer_componente)
+names(graficar) <- fechas[(n-5):n]
+grid.arrange(graficar[[1]],graficar[[2]],graficar[[3]],
+             nrow=1)
+grid.arrange(graficar[[4]],graficar[[5]],graficar[[6]],
+             nrow=1)
+```
+
+\pagebreak
+
+# 10. Variaciones Interanuales 
+
+## 10.1. Gr&#225;fico por Componentes, Enero 2010 - &#218;ltimo Mes Disponible
+
+```{r, comment="", warning=F, message=F, echo=F} 
+## Calcular dl_itcer
+d12ln_itcer <- tidy_data %>%
+  select(Meses,variable,paisx,d12ln_hn,d12ln_x,d12ln_itcer) %>%
+  group_by(Meses,variable,paisx) %>%
+  summarise(d12ln_itcer = sum(d12ln_itcer)) %>%
+  mutate(componente = paste0(variable,"_",paisx)) %>%
+  select(Meses,paisx,variable,componente,d12ln_itcer) %>%
+  as_tibble()
+
+## dlog_itcer por precios y tipos de cambio
+d12ln_itcer_componente <- d12ln_itcer %>%
+  select(-componente) %>%
+  spread(variable, d12ln_itcer) %>%
+  group_by(Meses) %>%
+  summarise(d12ln_itcer_precios = sum(ip),
+            d12ln_itcer_tipo_cambio = sum(itc)) %>%
+  gather("Componente", "Variacion", -Meses) %>%
+  as_tibble() 
+
+## Graficar
+d12ln_itcer_componente_plot <- d12ln_itcer %>%
+  filter(Meses >= "2010-01-01") %>%
+  group_by(Meses) %>%
+  summarize(d12ln_itcer = sum(d12ln_itcer)) %>%
+  mutate(d12ln_itcer = d12ln_itcer)
+
+p0 <- d12ln_itcer_componente %>%
+  filter(Meses >= "2010-01-01") %>%
+ggplot(aes(x = Meses, y = Variacion,
+               fill = Componente)) +
+  geom_bar(stat="identity") +
+theme_minimal() +
+ggtitle("Variaci\u00F3n Interanual del ITCER, por Componentes (DLn)") +
+geom_line(data = d12ln_itcer_componente_plot,
+          aes(x = Meses, y = d12ln_itcer),
+          colour="brown",
+          size=0.8,
+          inherit.aes=F) +
+theme(axis.title.x=element_blank(),
+      axis.title.y=element_blank())
+
+if(getOutputFormat() != 'html_document') {
+  p0
+} else {
+  ggplotly(p0)
+}
+```
+
+## 10.2. Tabla por Componentes, &#218;ltimos Meses Disponibles
+
+```{r, comment="", warning=F, message=F, echo=F} 
+d12ln_itcer_componente %>%
+  spread(Componente,Variacion) %>%
+  filter(Meses >= "2010-01-01") %>%
+ rename(Precios = d12ln_itcer_precios,
+         Tipo_Cambio = d12ln_itcer_tipo_cambio) %>%
+  bind_cols(d12ln_itcer_componente_plot[,2]) %>%
+  tail(.,25) %>%
+  kable()
+```
+
+\pagebreak
+
+## 10.3. Gr&#225;fico por Pa&#237;ses, Enero 2010 - &#218;ltimo Mes Disponible
+
+```{r, comment="", warning=F, message=F, echo=F} 
+## dlog_itcer por pais
+d12ln_itcer_pais <- d12ln_itcer %>%
+  group_by(Meses,paisx) %>%
+  summarise(Variacion = sum(d12ln_itcer)*100) %>%
+  as_tibble() 
+d12ln_itcer_pais_plot <- d12ln_itcer_pais %>%
+  filter(Meses >= "2010-01-01") %>%
+  group_by(Meses) %>%
+  summarize(d12ln_itcer = sum(Variacion))
+# Graficar
+p0 <- d12ln_itcer_pais %>%
+  filter(Meses >= "2010-01-01") %>%
+  ggplot(aes(x = Meses, y = Variacion,
+                 fill = paisx)) +
+  geom_bar(stat="identity") +
+  theme_minimal() +
+  ggtitle("Variaci\u00F3n Interanual del ITCER, por Pa\u00EDses (DLn)") +
+  geom_line(data = d12ln_itcer_pais_plot,
+            aes(x = Meses, y = d12ln_itcer),
+            colour="brown",
+            size=0.8,
+            inherit.aes=F) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank())
+
+if(getOutputFormat() != 'html_document') {
+  p0
+} else {
+  ggplotly(p0)
+}
+```
+
+## 10.4. Gr&#225;fico por Pa&#237;ses, &#218;ltimos 6 Meses Disponibles
+
+```{r, comment="", warning=F, message=F, echo=F} 
+## Por paises y fechas
+source('R/itcer_pais.R')
+fechas <- unique(d12ln_itcer$Meses)
+n <- length(fechas)
+fechas_graficar <- unique(d12ln_itcer$Meses)[(n-5):n]
+graficar <- map(fechas_graficar,
+    itcer_pais)
+names(graficar) <- fechas[(n-5):n]
+library(gridExtra)
+grid.arrange(graficar[[1]],graficar[[2]],graficar[[3]],
+             nrow=1)
+grid.arrange(graficar[[4]],graficar[[5]],graficar[[6]],
+             nrow=1)
+```
+
+\pagebreak
+
+## 10.5. Tabla por Pa&#237;ses, &#218;ltimo Mes Disponible
+
+```{r, comment="", warning=F, message=F, echo=F}
+d12ln_itcer %>%
+  filter(Meses == fecha_fin) %>%
+  group_by(Meses,paisx) %>%
+  summarize(d12ln_itcer = sum(d12ln_itcer)) %>%
+  kable()
+```
+
+## 10.6. Gr&#225;fico por Pa&#237;ses y Componentes, &#218;ltimos 6 Meses Disponibles
+
+```{r, comment="", warning=F, message=F, echo=F}
+source('R/itcer_componente.R')
+fechas <- unique(dln_itcer$Meses)
+n <- length(fechas)
+fechas_graficar <- unique(dln_itcer$Meses)[(n-5):n]
+graficar <- map(fechas_graficar,
+    itcer_componente)
+names(graficar) <- fechas[(n-5):n]
+grid.arrange(graficar[[1]],graficar[[2]],graficar[[3]],
+             nrow=1)
+grid.arrange(graficar[[4]],graficar[[5]],graficar[[6]],
+             nrow=1)
+```
+
+\pagebreak
+
+# 11. Datos Agrupados
+
+## 11.1. IPC, por Grupos
+
+```{r, comment="", warning=F, message=F, echo=F} 
+source('R/weighted.geomean.R')
+ip_pond <- data.frame(
+  Meses = ip[,1],
+  Global = apply(ip[,3:11],1,
+        function(x) 
+          weighted.geomean(x,pond[1,2:10])),
+  Centroam = apply(ip[,3:7],1,
+        function(x) 
+          weighted.geomean(x, pond[2,2:6])),
+  RestoMundo = apply(ip[,9:11],1,
+        function(x) 
+          weighted.geomean(x,pond[3,8:10]))
+  )
+ip_pond %>%
+  tail(21) %>%
+  kable()
+# write.csv(ip_pond, "resultados/indices/ip_pond.csv")
+```
+
+## 11.2. &#205;ndices de Tipo de Cambio Nominal, por Grupos
+
+```{r, comment="", warning=F, message=F, echo=F} 
+itc_pond <- data.frame(
+  Meses = itc[,1],
+  Global = apply(itc[,3:11],1,
+        function(x) 
+          # weighted.mean(x,pond[1,2:10])),
+          weighted.geomean(x,pond[1,2:10])),
+  Centroam = apply(itc[,3:7],1,
+        function(x) 
+          weighted.geomean(x,pond[2,2:6])),
+          # weighted.mean(x,pond[2,2:6])),
+  Resto_Mundo = apply(itc[,9:11],1,
+        function(x) 
+          weighted.geomean(x,pond[3,8:10]))
+          # weighted.mean(x,pond[3,8:10]))
+  )
+itc_pond %>%
+  tail(21) %>%
+  kable()
+# write.csv(itc_pond, "resultados/indices/itc_pond.csv")
+```
