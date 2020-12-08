@@ -1,0 +1,15 @@
+itcer_componente <- function(fecha) {
+  dln_itcer %>%
+  filter(Meses == fecha) %>%
+  ggplot() +
+  aes(x=reorder(componente, dln_itcer),y=dln_itcer) +
+  geom_bar(stat = "identity") +
+  facet_wrap(. ~ Meses, scales="free_x")  +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  coord_flip() +
+  labs(
+      x = "Variable",
+      y = ""
+      ) 
+}
