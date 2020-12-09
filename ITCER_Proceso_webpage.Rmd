@@ -4,15 +4,15 @@ author: "Elvis Casco"
 header-includes:
   \renewcommand{\contentsname}{Contenido}
 output:
+  pdf_document:
+    toc: yes
+    #includes:
+    #      in_header: header.tex
   html_document:
     df_print: paged
     toc: yes
     number_sections: yes
     code_folding: hide
-  pdf_document:
-    toc: yes
-    #includes:
-    #      in_header: header.tex
   word_document:
     toc: yes
     number_sections: yes
